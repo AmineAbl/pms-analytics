@@ -1,8 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const connectDB = require('./config/db');
-const seed = require('./seed');
+const { Pool } = require('pg');
 
 const app = express();
 
@@ -19,6 +18,7 @@ app.get('/', (req, res) => {
 
 app.post('/api/seed', async (req, res) => {
   try {
+    const seed = require('./seed');
     await seed();
     res.json({ message: 'Seed terminé avec succès' });
   } catch (err) {
@@ -29,10 +29,19 @@ app.post('/api/seed', async (req, res) => {
 const PORT = process.env.PORT || 4006;
 
 const start = async () => {
-  await connectDB();
-  app.listen(PORT, () => {
-    console.log(`Analytics service démarré sur le port ${PORT}`);
-  });
+  try {
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    await pool.query('SELECT 1');
+    await pool.end();
+    console.log('PostgreSQL connecté - Analytics');
+
+    app.listen(PORT, () => {
+      console.log(`Analytics service démarré sur le port ${PORT}`);
+    });
+  } catch (err) {
+    console.error('Erreur de connexion PostgreSQL:', err.message);
+    process.exit(1);
+  }
 };
 
 start();

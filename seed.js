@@ -1,8 +1,10 @@
 require('dotenv').config();
-const connectDB = require('./config/db');
-const Room = require('./models/Room');
-const Booking = require('./models/Booking');
-const Payment = require('./models/Payment');
+const { Pool } = require('pg');
+const { drizzle } = require('drizzle-orm/node-postgres');
+const schema = require('./schema');
+const roomsTable = require('./schema/rooms');
+const bookingsTable = require('./schema/bookings');
+const paymentsTable = require('./schema/payments');
 
 const segments = [
   'direct_walk_in', 'direct_phone_mail', 'direct_website',
@@ -14,14 +16,17 @@ const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = (arr) => arr[rand(0, arr.length - 1)];
 
 const seed = async () => {
-  await Room.deleteMany({});
-  await Booking.deleteMany({});
-  await Payment.deleteMany({});
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const db = drizzle(pool, { schema });
 
-  const rooms = [];
+  await db.delete(paymentsTable);
+  await db.delete(bookingsTable);
+  await db.delete(roomsTable);
+
+  const roomData = [];
   const categories = ['standard', 'standard', 'standard', 'superior', 'superior', 'suite', 'lodge'];
   for (let i = 1; i <= 30; i++) {
-    rooms.push({
+    roomData.push({
       roomNumber: String(i).padStart(3, '0'),
       category: categories[i % categories.length],
       floor: Math.ceil(i / 10),
@@ -31,15 +36,15 @@ const seed = async () => {
       isActive: true
     });
   }
-  const createdRooms = await Room.insertMany(rooms);
+
+  const createdRooms = await db.insert(roomsTable).values(roomData).returning();
 
   const now = new Date();
   const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
   const totalRooms = createdRooms.length;
 
-  const bookingDocs = [];
-  const paymentDocs = [];
+  const bookingData = [];
+  const paymentData = [];
 
   for (let m = 1; m <= 12; m++) {
     const daysInMonth = new Date(currentYear, m, 0).getDate();
@@ -65,20 +70,20 @@ const seed = async () => {
 
       const bookingRef = `BK-${String(currentYear).slice(2)}${String(m).padStart(2, '0')}${String(bookingIndex++).padStart(4, '0')}`;
 
-      bookingDocs.push({
+      bookingData.push({
         bookingRef,
-        roomId: room._id,
+        roomId: room.id,
         status,
-        checkInDate: checkIn,
-        checkOutDate: checkOut,
-        actualCheckIn: checkIn,
-        actualCheckOut: isPast ? checkOut : null,
+        checkInDate: checkIn.toISOString().slice(0, 10),
+        checkOutDate: checkOut.toISOString().slice(0, 10),
+        actualCheckIn: checkIn.toISOString().slice(0, 10),
+        actualCheckOut: isPast ? checkOut.toISOString().slice(0, 10) : null,
         adults: rand(1, 3),
         children: rand(0, 2),
         boardType: pick(['bb', 'bb', 'bb', 'dp', 'pc']),
-        roomRate: rate,
-        totalAmount: rate * stayNights,
-        deposit: Math.round(rate * stayNights * 0.3),
+        roomRate: String(rate),
+        totalAmount: String(rate * stayNights),
+        deposit: String(Math.round(rate * stayNights * 0.3)),
         marketSegment: segment,
         createdAt: new Date(checkIn.getTime() - 7 * 24 * 60 * 60 * 1000)
       });
@@ -87,19 +92,19 @@ const seed = async () => {
     }
   }
 
-  const createdBookings = await Booking.insertMany(bookingDocs);
+  const createdBookings = await db.insert(bookingsTable).values(bookingData).returning();
 
   for (const b of createdBookings) {
     if (b.status === 'checked_out' || b.status === 'checked_in') {
-      const nights = Math.ceil((b.checkOutDate - b.checkInDate) / (1000 * 60 * 60 * 24));
-      const totalPaid = b.roomRate * nights;
+      const nights = Math.ceil((new Date(b.checkOutDate) - new Date(b.checkInDate)) / (1000 * 60 * 60 * 24));
+      const totalPaid = parseFloat(b.roomRate) * nights;
 
       const paymentMethods = ['cb', 'esp', 'chq', 'virement', 'debiteur'];
       const method = b.marketSegment.startsWith('b2b') ? 'debiteur' : pick(paymentMethods);
 
-      paymentDocs.push({
-        bookingId: b._id,
-        amount: totalPaid,
+      paymentData.push({
+        bookingId: b.id,
+        amount: String(totalPaid),
         paymentMethod: method,
         cardType: method === 'cb' ? pick(['visa', 'mastercard']) : null,
         processedAt: b.actualCheckOut || b.actualCheckIn
@@ -107,13 +112,16 @@ const seed = async () => {
     }
   }
 
-  await Payment.insertMany(paymentDocs);
+  if (paymentData.length > 0) {
+    await db.insert(paymentsTable).values(paymentData);
+  }
 
-  console.log(`✅ Seed: ${createdRooms.length} chambres, ${createdBookings.length} réservations, ${paymentDocs.length} paiements`);
+  console.log(`Seed: ${createdRooms.length} chambres, ${createdBookings.length} réservations, ${paymentData.length} paiements`);
+  await pool.end();
 };
 
 if (require.main === module) {
-  connectDB().then(() => seed()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
+  seed().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
 } else {
   module.exports = seed;
 }

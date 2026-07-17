@@ -1,38 +1,50 @@
-const Booking = require('../models/Booking');
-const Room = require('../models/Room');
-const Payment = require('../models/Payment');
+const { eq, and, lte, gte, inArray, count } = require('drizzle-orm');
+const db = require('../config/database');
+const bookingsTable = require('../schema/bookings');
+const roomsTable = require('../schema/rooms');
+const paymentsTable = require('../schema/payments');
 
 const computeStats = async (year, month, segment) => {
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0, 23, 59, 59, 999);
-  const daysInMonth = end.getDate();
+  const start = new Date(year, month - 1, 1).toISOString().slice(0, 10);
+  const end = new Date(year, month, 0, 23, 59, 59, 999).toISOString().slice(0, 10);
+  const daysInMonth = new Date(year, month, 0).getDate();
 
-  const totalRooms = await Room.countDocuments({ isActive: true });
+  const [{ totalRooms }] = await db
+    .select({ totalRooms: count() })
+    .from(roomsTable)
+    .where(eq(roomsTable.isActive, true));
+
   const totalRoomsAvailable = totalRooms * daysInMonth;
 
-  const query = {
-    checkInDate: { $lte: end },
-    checkOutDate: { $gte: start },
-    status: { $in: ['checked_in', 'checked_out'] }
-  };
-  if (segment) query.marketSegment = segment;
+  const conditions = [
+    lte(bookingsTable.checkInDate, end),
+    gte(bookingsTable.checkOutDate, start),
+    inArray(bookingsTable.status, ['checked_in', 'checked_out'])
+  ];
+  if (segment) conditions.push(eq(bookingsTable.marketSegment, segment));
 
-  const bookings = await Booking.find(query).lean();
-  const bookingIds = bookings.map(b => b._id);
-  const payments = bookingIds.length > 0 ? await Payment.find({ bookingId: { $in: bookingIds } }).lean() : [];
+  const monthBookings = await db
+    .select()
+    .from(bookingsTable)
+    .where(and(...conditions));
+
+  const bookingIds = monthBookings.map(b => b.id);
+  const monthPayments = bookingIds.length > 0
+    ? await db.select().from(paymentsTable).where(inArray(paymentsTable.bookingId, bookingIds))
+    : [];
   const payMap = {};
-  for (const p of payments) {
-    payMap[p.bookingId.toString()] = (payMap[p.bookingId.toString()] || 0) + p.amount;
+  for (const p of monthPayments) {
+    payMap[p.bookingId] = (payMap[p.bookingId] || 0) + parseFloat(p.amount);
   }
 
   let totalNights = 0;
   let totalRevenue = 0;
 
-  for (const b of bookings) {
+  for (const b of monthBookings) {
     const ci = b.checkInDate < start ? start : b.checkInDate;
     const co = b.checkOutDate > end ? end : b.checkOutDate;
-    totalNights += Math.ceil((co - ci) / (1000 * 60 * 60 * 24));
-    totalRevenue += payMap[b._id.toString()] || 0;
+    totalNights += Math.ceil((new Date(co) - new Date(ci)) / (1000 * 60 * 60 * 24));
+    totalRevenue += payMap[b.id] || 0;
   }
 
   return {

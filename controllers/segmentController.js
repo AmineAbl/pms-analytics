@@ -1,5 +1,7 @@
-const Booking = require('../models/Booking');
-const Payment = require('../models/Payment');
+const { eq, and, lte, gte, inArray } = require('drizzle-orm');
+const db = require('../config/database');
+const bookingsTable = require('../schema/bookings');
+const paymentsTable = require('../schema/payments');
 
 const SEGMENT_LABELS = {
   direct_walk_in: 'Direct - Walk-in',
@@ -26,30 +28,35 @@ exports.getSegmentDistribution = async (req, res) => {
     const y = parseInt(year) || new Date().getFullYear();
     const m = parseInt(month) || new Date().getMonth() + 1;
 
-    const start = new Date(y, m - 1, 1);
-    const end = new Date(y, m, 0, 23, 59, 59, 999);
+    const start = new Date(y, m - 1, 1).toISOString().slice(0, 10);
+    const end = new Date(y, m, 0, 23, 59, 59, 999).toISOString().slice(0, 10);
 
-    const bookings = await Booking.find({
-      checkInDate: { $lte: end },
-      checkOutDate: { $gte: start },
-      status: { $in: ['checked_in', 'checked_out'] }
-    }).lean();
+    const monthBookings = await db
+      .select()
+      .from(bookingsTable)
+      .where(and(
+        lte(bookingsTable.checkInDate, end),
+        gte(bookingsTable.checkOutDate, start),
+        inArray(bookingsTable.status, ['checked_in', 'checked_out'])
+      ));
 
-    const bookingIds = bookings.map(b => b._id);
-    const payments = bookingIds.length > 0 ? await Payment.find({ bookingId: { $in: bookingIds } }).lean() : [];
+    const bookingIds = monthBookings.map(b => b.id);
+    const monthPayments = bookingIds.length > 0
+      ? await db.select().from(paymentsTable).where(inArray(paymentsTable.bookingId, bookingIds))
+      : [];
     const payMap = {};
-    for (const p of payments) {
-      payMap[p.bookingId.toString()] = (payMap[p.bookingId.toString()] || 0) + p.amount;
+    for (const p of monthPayments) {
+      payMap[p.bookingId] = (payMap[p.bookingId] || 0) + parseFloat(p.amount);
     }
 
     const segData = {};
-    for (const b of bookings) {
+    for (const b of monthBookings) {
       const seg = b.marketSegment;
       if (!segData[seg]) segData[seg] = { nights: 0, revenue: 0 };
       const ci = b.checkInDate < start ? start : b.checkInDate;
       const co = b.checkOutDate > end ? end : b.checkOutDate;
-      segData[seg].nights += Math.ceil((co - ci) / (1000 * 60 * 60 * 24));
-      segData[seg].revenue += payMap[b._id.toString()] || 0;
+      segData[seg].nights += Math.ceil((new Date(co) - new Date(ci)) / (1000 * 60 * 60 * 24));
+      segData[seg].revenue += payMap[b.id] || 0;
     }
 
     const totalNights = Object.values(segData).reduce((s, v) => s + v.nights, 0);
@@ -87,30 +94,35 @@ exports.getMonthlySegmentTrend = async (req, res) => {
     const months = [];
 
     for (let m = 1; m <= 12; m++) {
-      const start = new Date(y, m - 1, 1);
-      const end = new Date(y, m, 0, 23, 59, 59, 999);
+      const start = new Date(y, m - 1, 1).toISOString().slice(0, 10);
+      const end = new Date(y, m, 0, 23, 59, 59, 999).toISOString().slice(0, 10);
 
-      const bookings = await Booking.find({
-        checkInDate: { $lte: end },
-        checkOutDate: { $gte: start },
-        status: { $in: ['checked_in', 'checked_out'] }
-      }).lean();
+      const monthBookings = await db
+        .select()
+        .from(bookingsTable)
+        .where(and(
+          lte(bookingsTable.checkInDate, end),
+          gte(bookingsTable.checkOutDate, start),
+          inArray(bookingsTable.status, ['checked_in', 'checked_out'])
+        ));
 
-      const bookingIds = bookings.map(b => b._id);
-      const payments = bookingIds.length > 0 ? await Payment.find({ bookingId: { $in: bookingIds } }).lean() : [];
+      const bookingIds = monthBookings.map(b => b.id);
+      const monthPayments = bookingIds.length > 0
+        ? await db.select().from(paymentsTable).where(inArray(paymentsTable.bookingId, bookingIds))
+        : [];
       const payMap = {};
-      for (const p of payments) {
-        payMap[p.bookingId.toString()] = (payMap[p.bookingId.toString()] || 0) + p.amount;
+      for (const p of monthPayments) {
+        payMap[p.bookingId] = (payMap[p.bookingId] || 0) + parseFloat(p.amount);
       }
 
       const segData = {};
-      for (const b of bookings) {
+      for (const b of monthBookings) {
         const seg = b.marketSegment;
         if (!segData[seg]) segData[seg] = { nights: 0, revenue: 0 };
         const ci = b.checkInDate < start ? start : b.checkInDate;
         const co = b.checkOutDate > end ? end : b.checkOutDate;
-        segData[seg].nights += Math.ceil((co - ci) / (1000 * 60 * 60 * 24));
-        segData[seg].revenue += payMap[b._id.toString()] || 0;
+        segData[seg].nights += Math.ceil((new Date(co) - new Date(ci)) / (1000 * 60 * 60 * 24));
+        segData[seg].revenue += payMap[b.id] || 0;
       }
 
       months.push({
