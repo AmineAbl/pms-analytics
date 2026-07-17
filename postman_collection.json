@@ -1,0 +1,68 @@
+{
+  "info": {
+    "name": "Analytics - PMS",
+    "description": "API Analytics - Dashboard KPIs, Segments, Comparaison N-1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4006" }
+  ],
+  "item": [
+    {
+      "name": "📊 DASHBOARD",
+      "item": [
+        {
+          "name": "KPIs Dashboard",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/dashboard" }
+        },
+        {
+          "name": "Tendance Mensuelle",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/dashboard/trend?year=2026" }
+        }
+      ]
+    },
+    {
+      "name": "🧩 SEGMENTS",
+      "item": [
+        {
+          "name": "Liste des segments",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/segments" }
+        },
+        {
+          "name": "Distribution (Pie Chart + Barres)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/segments/distribution?year=2026&month=7" }
+        },
+        {
+          "name": "Tendance mensuelle par segment",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/segments/trend?year=2026" }
+        }
+      ]
+    },
+    {
+      "name": "🔄 COMPARAISON N-1",
+      "item": [
+        {
+          "name": "Year-to-Date (YTD)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/comparison/ytd?year=2026" }
+        },
+        {
+          "name": "YTD par segment",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/comparison/ytd?year=2026&segment=ota_booking" }
+        },
+        {
+          "name": "Comparaison mensuelle",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/comparison/monthly?year=2026&month=6" }
+        }
+      ]
+    },
+    {
+      "name": "🔧 UTILITAIRES",
+      "item": [
+        {
+          "name": "Seed données test",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/seed" }
+        }
+      ]
+    }
+  ]
+}
