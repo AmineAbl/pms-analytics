@@ -107,7 +107,7 @@ const seed = async () => {
         amount: String(totalPaid),
         paymentMethod: method,
         cardType: method === 'cb' ? pick(['visa', 'mastercard']) : null,
-        processedAt: b.actualCheckOut || b.actualCheckIn
+        processedAt: b.actualCheckOut ? new Date(b.actualCheckOut) : (b.actualCheckIn ? new Date(b.actualCheckIn) : null)
       });
     }
   }
