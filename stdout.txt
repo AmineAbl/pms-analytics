@@ -1,0 +1,2 @@
+PostgreSQL connecté - Analytics
+Analytics service démarré sur le port 4006

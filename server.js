@@ -3,20 +3,26 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 
+const auth = require('./middleware/auth');
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/dashboard', require('./routes/dashboard'));
-app.use('/api/segments', require('./routes/segments'));
-app.use('/api/comparison', require('./routes/comparison'));
+app.use('/api/dashboard', auth, require('./routes/dashboard'));
+app.use('/api/segments', auth, require('./routes/segments'));
+app.use('/api/comparison', auth, require('./routes/comparison'));
+
+app.get('/api/health', (req, res) => {
+  res.json({ service: 'Analytics', status: 'running', port: process.env.PORT });
+});
 
 app.get('/', (req, res) => {
   res.json({ service: 'Analytics', status: 'running', port: process.env.PORT });
 });
 
-app.post('/api/seed', async (req, res) => {
+app.post('/api/seed', auth, async (req, res) => {
   try {
     const seed = require('./seed');
     await seed();
